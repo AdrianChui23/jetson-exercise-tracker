@@ -31,7 +31,7 @@ from timeit import default_timer as timer
 
 
 def check_arm_visible(pose, shoulder_idx, elbow_idx, wrist_idx)->bool:
-    if shoulder_idx < 0 or elbow_idx < 0 or wrist_idx < 0:
+    if shoulder_idx < 0 or elbow_idx < 0 or wrist_idx < 0: 
         return False
     return True
 
@@ -41,7 +41,7 @@ def check_arm_raised(pose, shoulder_idx, elbow_idx, wrist_idx)->bool:
         return False
     
     wrist = pose.Keypoints[wrist_idx]
-    shoulder = pose.Keypoints[left_shoulder_idx]
+    shoulder = pose.Keypoints[shoulder_idx]
 
     return True if (shoulder.y - wrist.y) > 0.0 else False
 
@@ -73,9 +73,24 @@ input = videoSource(args.input, argv=sys.argv)
 output = videoOutput(args.output, argv=sys.argv)
 
 font = cudaFont()
-arm_raised = False
-count_of_left_arm_movement = 0
+left_arm_raised:bool = False
+right_arm_raised:bool = False
+left_arm_raised_previously:bool = False
+right_arm_raised_previously:bool = False
+arm_raised_previously:bool = False
+count_of_arm_movement = 0
 
+arms = [{"name": "Left Arm", 
+        "shoulder": "left_shoulder", 
+        "elbow": "left_elbow", 
+        "wrist": "left_wrist"}, 
+        {"name": "Right Arm", 
+        "shoulder": "right_shoulder", 
+        "elbow": "right_elbow", 
+        "wrist": "right_wrist"}]
+
+current_exercise = 0
+task_started = True
 
 # process frames until EOS or the user exits
 while True:
@@ -112,45 +127,93 @@ while True:
         right_eye_idx = pose.FindKeypoint('right_eye')
         nose_idx = pose.FindKeypoint('nose')
 
+        arm = arms[current_exercise]     
+        arm_visible = check_arm_visible(pose, shoulder_idx=pose.FindKeypoint(arm["shoulder"]),
+                                        elbow_idx=pose.FindKeypoint(arm["elbow"]),  
+                                        wrist_idx=pose.FindKeypoint(arm["wrist"]))
+        
+        arm_raised =  check_arm_raised(pose, shoulder_idx=pose.FindKeypoint(arm["shoulder"]),
+                                        elbow_idx=pose.FindKeypoint(arm["elbow"]),  
+                                        wrist_idx=pose.FindKeypoint(arm["wrist"]))
 
-
-        if not check_arm_visible(pose, shoulder_idx=left_shoulder_idx,
-                             elbow_idx=left_elbow_idx,  wrist_idx=left_wrist_idx):
-            font.OverlayText(img, text=f"I can't see your whole left arm.",
+        if not arm_visible:
+            font.OverlayText(img, text=f"I can't see your entire {arm['name']}.",
                                 x=5, y=5 + (font.GetSize()),
                                 color=font.White, background=font.Gray40)
-            continue
         else:            
-            if check_arm_raised(pose, shoulder_idx=left_shoulder_idx,
-                                elbow_idx=left_elbow_idx,  wrist_idx=left_wrist_idx):
-                if not arm_raised :
-                    start = timer()
-                    arm_raised = True
+            if arm_raised:
+                if not arm_raised_previously:
+                    arm_start = timer()
+                    arm_raised_previously = True
                     task_completed = False                
             else:
-                arm_raised = False
-                font.OverlayText(img, text=f"Raise your arm please",
-                    x=5, y=5 + (font.GetSize()),
-                    color=font.White, background=font.Gray40)
-            if arm_raised:
-                elasped_time = timer() - start
-                if elasped_time > 5:
-                    font.OverlayText(img, text=f"Lower your left arm.",
-                    x=5, y=50 + (font.GetSize()),
-                    color=font.White, background=font.Gray40) 
-                    if not task_completed:
-                        count_of_left_arm_movement += 1
-                        
-                    task_completed = True
-                else:
-                    font.OverlayText(img, text=f"Lift the arm for { start +5 -timer(): .0f} seconds.",
-                        x=5, y=50 + (font.GetSize()),
-                        color=font.White, background=font.Gray40)
-            font.OverlayText(img, text=f"arm is raised: {count_of_left_arm_movement}",
+                arm_raised_previously = False
+                font.OverlayText(img, text=f"Raise your {arm['name']} please",
                     x=500, y=5 + (font.GetSize()),
                     color=font.White, background=font.Gray40)
+                if not task_started:
+                    current_exercise = (current_exercise + 1) % len(arms)
+                    task_started = True
 
 
+            if arm_raised_previously:
+                elasped_time = timer() - arm_start
+                if elasped_time > 5:
+                    font.OverlayText(img, text=f"Lower your arm {arm['name']}",
+                                    x=500, y=50 + (font.GetSize()),
+                                    color=font.White, background=font.Gray40) 
+                    if not task_completed:
+                        count_of_arm_movement += 1        
+                    task_completed = True
+                    task_started = False
+ 
+                else:
+                    font.OverlayText(img, text=f"{arm['name']} lifted for {arm_start + 5 - timer(): .0f} seconds.",
+                        x=500, y=50 + (font.GetSize()),
+                        color=font.White, background=font.Gray40)
+                    
+            font.OverlayText(img, text=f"{arm['name']} raised: {count_of_arm_movement}",
+                    x=500, y=100 + (font.GetSize()),
+                    color=font.White, background=font.Gray40)
+
+        
+    '''    
+        if not left_arm_raised:
+            if not right_arm_visible:
+                font.OverlayText(img, text=f"I can't see your whole right arm.",
+                                 x=5, y=5 + (font.GetSize()),
+                                 color=font.White, background=font.Gray40)
+                continue
+            else:
+                if right_arm_raised:
+                    if not right_arm_raised_previously :
+                        right_arm_start = timer()
+                        right_arm_raised_previously = True
+                        task_completed = False                
+                else:
+                    right_arm_raised_previously = False
+                    font.OverlayText(img, text=f"Raise your right arm please",
+                    x=5, y=5 + (font.GetSize()),
+                    color=font.White, background=font.Gray40)
+                if right_arm_raised_previously:
+                    elasped_time = timer() - right_arm_start
+                    if elasped_time > 5:
+                        font.OverlayText(img, text=f"Lower your right arm.",
+                        x=5, y=50 + (font.GetSize()),
+                        color=font.White, background=font.Gray40) 
+                        if not task_completed:
+                            count_of_right_arm_movement += 1
+                        
+                        task_completed = True
+                    else:
+                        font.OverlayText(img, text=f"Right arm lifted for {right_arm_start +5 -timer(): .0f} seconds.",
+                            x=5, y=50 + (font.GetSize()),
+                            color=font.White, background=font.Gray40)
+                font.OverlayText(img, text=f"Right arm raised: {count_of_right_arm_movement}",
+                        x=500, y=5 + (font.GetSize()),
+                        color=font.White, background=font.Gray40)
+    '''
+    
     # render the image
     output.Render(img)
 
