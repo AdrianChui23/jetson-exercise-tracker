@@ -30,12 +30,12 @@ from jetson_utils import videoSource, videoOutput, Log, cudaFont
 from timeit import default_timer as timer
 
 
-def check_arm_visible(pose, shoulder_idx, elbow_idx, wrist_idx)->bool:
+def check_body_part_visible(pose, shoulder_idx, elbow_idx, wrist_idx)->bool:
     if shoulder_idx < 0 or elbow_idx < 0 or wrist_idx < 0: 
         return False
     return True
 
-def check_arm_raised(pose, shoulder_idx, elbow_idx, wrist_idx)->bool:
+def check_body_part_raised(pose, shoulder_idx, elbow_idx, wrist_idx)->bool:
 
     if shoulder_idx < 0 or elbow_idx < 0 or wrist_idx < 0:
         return False
@@ -45,7 +45,21 @@ def check_arm_raised(pose, shoulder_idx, elbow_idx, wrist_idx)->bool:
 
     return True if (shoulder.y - wrist.y) > 0.0 else False
 
+def check_lower_body_part_visible(pose, hip_idx, ankle_idx, knee_idx)->bool:
+    if hip_idx < 0 or ankle_idx < 0 or knee_idx < 0: 
+        return False
+    return True
 
+def check_lower_body_part_raised(pose, hip_idx, ankle_idx, knee_idx)->bool:
+
+    if hip_idx < 0 or ankle_idx < 0 or knee_idx < 0:
+        return False
+    
+    hip = pose.Keypoints[hip_idx]
+    ankle = pose.Keypoints[ankle_idx]
+    knee = pose.Keypoints[knee.idx]
+
+    return True if (hip.y - ankle.y) > 0.0 else False
 
 # parse the command line
 parser = argparse.ArgumentParser(description="Run pose estimation DNN on a video/image stream.", 
@@ -73,14 +87,14 @@ input = videoSource(args.input, argv=sys.argv)
 output = videoOutput(args.output, argv=sys.argv)
 
 font = cudaFont()
-left_arm_raised:bool = False
-right_arm_raised:bool = False
-left_arm_raised_previously:bool = False
-right_arm_raised_previously:bool = False
-arm_raised_previously:bool = False
-count_of_arm_movement = 0
+left_body_part_raised:bool = False
+right_body_part_raised:bool = False
+part_raised_previously:bool = False
+part_raised_previously:bool = False
+part_raised_previously:bool = False
+count_of_body_part_movement = 0
 
-arms = [{"name": "Left Arm", 
+limbs = [{"name": "Left Arm", 
         "shoulder": "left_shoulder", 
         "elbow": "left_elbow", 
         "wrist": "left_wrist"}, 
@@ -89,8 +103,28 @@ arms = [{"name": "Left Arm",
         "elbow": "right_elbow", 
         "wrist": "right_wrist"}]
 
-current_exercise = 0
-task_started = True
+exercises = [{"name": "Lift Left Arm", 
+          "body_parts": ["Left Arm"], 
+          "duration": 5,
+          "repeat":2,
+          "caption": "Lower Left Arm",
+          "describe": "Left Arm is" }, 
+          {"name": "Lift Right Arm", 
+          "body_parts": ["Right Arm"], 
+          "duration": 5,
+          "repeat":2,
+          "caption": "Lower Right Arm",
+          "describe": "Right Arm is"  },
+          {"name": "Lift Both Arms", 
+          "body_parts": ["Left Arm", "Right Arm"],
+          "duration": 3,
+          "repeat": 3 ,
+          "caption": "Lower Both Arm",
+          "describe": "Both Arms are"} ]
+
+current_exercise_index = 0
+exercise_started = False
+
 
 # process frames until EOS or the user exits
 while True:
@@ -101,14 +135,31 @@ while True:
         continue  
 
     # perform pose estimation (with overlay)
-    poses = net.Process(img, overlay=args.overlay)
+    poses = net.Process(img, overlay=args.overlay)\
+    
+
+    exercise:dict = exercises[current_exercise_index]
+
+    body_parts = exercise["body_parts"]
+
+    body_part_visible = False
+    body_part_raised = False
+        
 
     if len(poses) == 0:
         font.OverlayText(img, text=f"Body is not detected.",
-                    x=5, y=5 + (font.GetSize()),
+                    x=0, y=50 + (font.GetSize()),
                     color=font.White, background=font.Gray40)
-
-    for pose in poses:
+        
+    font.OverlayText(img, text=f"Current exercise: {exercise['name']} ",
+                    x=0, y=0 + (font.GetSize()),
+                    color=font.White, background=font.Gray40)
+    if len(poses) > 1:
+        font.OverlayText(img, text=f"Too many people",
+                    x=0, y=50 + (font.GetSize()),
+                    color=font.White, background=font.Gray40)
+    elif len(poses) == 1:
+        pose = poses[0]
         left_wrist_idx = pose.FindKeypoint('left_wrist')
         left_shoulder_idx = pose.FindKeypoint('left_shoulder')
         left_eye_idx = pose.FindKeypoint('left_eye')
@@ -127,93 +178,63 @@ while True:
         right_eye_idx = pose.FindKeypoint('right_eye')
         nose_idx = pose.FindKeypoint('nose')
 
-        arm = arms[current_exercise]     
-        arm_visible = check_arm_visible(pose, shoulder_idx=pose.FindKeypoint(arm["shoulder"]),
-                                        elbow_idx=pose.FindKeypoint(arm["elbow"]),  
-                                        wrist_idx=pose.FindKeypoint(arm["wrist"]))
-        
-        arm_raised =  check_arm_raised(pose, shoulder_idx=pose.FindKeypoint(arm["shoulder"]),
-                                        elbow_idx=pose.FindKeypoint(arm["elbow"]),  
-                                        wrist_idx=pose.FindKeypoint(arm["wrist"]))
 
-        if not arm_visible:
-            font.OverlayText(img, text=f"I can't see your entire {arm['name']}.",
-                                x=5, y=5 + (font.GetSize()),
+        for body_part in body_parts:  #body_part is a str
+            matches = [x for x in limbs if x["name"] == body_part]
+            part = matches[0]
+            body_part_visible = check_body_part_visible(pose, shoulder_idx=pose.FindKeypoint(part["shoulder"]),
+                                        elbow_idx=pose.FindKeypoint(part["elbow"]),  
+                                        wrist_idx=pose.FindKeypoint(part["wrist"]))
+        
+            body_part_raised = check_body_part_raised(pose, shoulder_idx=pose.FindKeypoint(part["shoulder"]),
+                                        elbow_idx=pose.FindKeypoint(part["elbow"]),  
+                                        wrist_idx=pose.FindKeypoint(part["wrist"]))
+            if not body_part_visible or not body_part_raised:
+                break
+
+        if not body_part_visible:
+            font.OverlayText(img, text=f"{part['name']} is not visible.",
+                                x=5, y=50 + (font.GetSize()),
                                 color=font.White, background=font.Gray40)
+            
         else:            
-            if arm_raised:
-                if not arm_raised_previously:
-                    arm_start = timer()
-                    arm_raised_previously = True
-                    task_completed = False                
+            if body_part_raised:
+                if not part_raised_previously:
+                    part_start = timer()
+                    part_raised_previously = True
+                    exercise_completed = False                
             else:
-                arm_raised_previously = False
-                font.OverlayText(img, text=f"Raise your {arm['name']} please",
-                    x=500, y=5 + (font.GetSize()),
-                    color=font.White, background=font.Gray40)
-                if not task_started:
-                    current_exercise = (current_exercise + 1) % len(arms)
-                    task_started = True
+                part_raised_previously = False
+                font.OverlayText(img, text=f"{exercise['describe']} not raised ",
+                    x=5, y=50 + (font.GetSize()),
+                    color=font.White, background=font.Gray40)    
+                if not exercise_started:
+                    if exercise_completed:
+                        current_exercise_index = (current_exercise_index+ 1) % len(exercises) 
+                        exercise_completed = False
+                    exercise_started = True
 
-
-            if arm_raised_previously:
-                elasped_time = timer() - arm_start
-                if elasped_time > 5:
-                    font.OverlayText(img, text=f"Lower your arm {arm['name']}",
-                                    x=500, y=50 + (font.GetSize()),
+            if part_raised_previously:
+                elasped_time = timer() - part_start
+                if elasped_time > exercise['duration']:
+                    font.OverlayText(img, text=f"{exercise['caption']}",
+                                    x=0, y=50 + (font.GetSize()),
                                     color=font.White, background=font.Gray40) 
-                    if not task_completed:
-                        count_of_arm_movement += 1        
-                    task_completed = True
-                    task_started = False
- 
-                else:
-                    font.OverlayText(img, text=f"{arm['name']} lifted for {arm_start + 5 - timer(): .0f} seconds.",
-                        x=500, y=50 + (font.GetSize()),
-                        color=font.White, background=font.Gray40)
-                    
-            font.OverlayText(img, text=f"{arm['name']} raised: {count_of_arm_movement}",
-                    x=500, y=100 + (font.GetSize()),
-                    color=font.White, background=font.Gray40)
-
+                    if not exercise_completed:
+                        count_of_body_part_movement += 1       
         
-    '''    
-        if not left_arm_raised:
-            if not right_arm_visible:
-                font.OverlayText(img, text=f"I can't see your whole right arm.",
-                                 x=5, y=5 + (font.GetSize()),
-                                 color=font.White, background=font.Gray40)
-                continue
-            else:
-                if right_arm_raised:
-                    if not right_arm_raised_previously :
-                        right_arm_start = timer()
-                        right_arm_raised_previously = True
-                        task_completed = False                
+                    exercise_completed = True
+                    exercise_started = False
+
                 else:
-                    right_arm_raised_previously = False
-                    font.OverlayText(img, text=f"Raise your right arm please",
-                    x=5, y=5 + (font.GetSize()),
-                    color=font.White, background=font.Gray40)
-                if right_arm_raised_previously:
-                    elasped_time = timer() - right_arm_start
-                    if elasped_time > 5:
-                        font.OverlayText(img, text=f"Lower your right arm.",
-                        x=5, y=50 + (font.GetSize()),
-                        color=font.White, background=font.Gray40) 
-                        if not task_completed:
-                            count_of_right_arm_movement += 1
-                        
-                        task_completed = True
-                    else:
-                        font.OverlayText(img, text=f"Right arm lifted for {right_arm_start +5 -timer(): .0f} seconds.",
-                            x=5, y=50 + (font.GetSize()),
-                            color=font.White, background=font.Gray40)
-                font.OverlayText(img, text=f"Right arm raised: {count_of_right_arm_movement}",
-                        x=500, y=5 + (font.GetSize()),
+                    font.OverlayText(img, text=f"{exercise['describe']} lifted for{part_start + exercise['duration']- timer(): .0f} seconds.",
+                        x=0, y=50 + (font.GetSize()),
                         color=font.White, background=font.Gray40)
-    '''
-    
+                        
+    font.OverlayText(img, text=f"Total exercise: {count_of_body_part_movement}",
+            x=0, y=100 + (font.GetSize()),
+            color=font.White, background=font.Gray40)
+
     # render the image
     output.Render(img)
 
