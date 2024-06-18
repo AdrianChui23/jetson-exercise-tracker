@@ -57,9 +57,11 @@ def check_lower_body_part_raised(pose, hip_idx, ankle_idx, knee_idx)->bool:
     
     hip = pose.Keypoints[hip_idx]
     ankle = pose.Keypoints[ankle_idx]
-    knee = pose.Keypoints[knee.idx]
+    knee = pose.Keypoints[knee_idx]
 
-    return True if (hip.y - ankle.y) > 0.0 else False
+    legs_y = (hip.y + ankle.y)/2
+
+    return True if legs_y > 0.0 else False
 
 # parse the command line
 parser = argparse.ArgumentParser(description="Run pose estimation DNN on a video/image stream.", 
@@ -95,13 +97,21 @@ part_raised_previously:bool = False
 count_of_body_part_movement = 0
 
 limbs = [{"name": "Left Arm", 
-        "shoulder": "left_shoulder", 
-        "elbow": "left_elbow", 
-        "wrist": "left_wrist"}, 
+        "joint1": "left_shoulder", 
+        "joint2": "left_elbow", 
+        "joint3": "left_wrist"}, 
         {"name": "Right Arm", 
-        "shoulder": "right_shoulder", 
-        "elbow": "right_elbow", 
-        "wrist": "right_wrist"}]
+        "joint1": "right_shoulder", 
+        "joint2": "right_elbow", 
+        "joint3": "right_wrist"},
+        {"name": "Left Leg", 
+        "joint1": "left_hip", 
+        "joint2": "left_ankle", 
+        "joint3": "left_knee"},
+        {"name": "Right Leg", 
+        "joint1": "right_hip", 
+        "joint2": "right_ankle", 
+        "joint3": "right_knee"}]
 
 exercises = [{"name": "Lift Left Arm", 
           "body_parts": ["Left Arm"], 
@@ -120,10 +130,23 @@ exercises = [{"name": "Lift Left Arm",
           "duration": 3,
           "repeat": 3 ,
           "caption": "Lower Both Arm",
-          "describe": "Both Arms are"} ]
+          "describe": "Both Arms are"},
+          {"name": "Lift Left Leg", 
+          "body_parts": ["Left Leg"],
+          "duration": 3,
+          "repeat": 2,
+          "caption": "Lower Left Leg",
+          "describe": "Left Leg is"},
+          {"name": "Lift Right Leg", 
+          "body_parts": ["Right Leg"],
+          "duration": 3,
+          "repeat": 2,
+          "caption": "Lower Right Leg",
+          "describe": "Right Leg is"}]
 
 current_exercise_index = 0
 exercise_started = False
+exercise_completed = True
 
 
 # process frames until EOS or the user exits
@@ -135,7 +158,7 @@ while True:
         continue  
 
     # perform pose estimation (with overlay)
-    poses = net.Process(img, overlay=args.overlay)\
+    poses = net.Process(img, overlay=args.overlay)
     
 
     exercise:dict = exercises[current_exercise_index]
@@ -182,13 +205,19 @@ while True:
         for body_part in body_parts:  #body_part is a str
             matches = [x for x in limbs if x["name"] == body_part]
             part = matches[0]
-            body_part_visible = check_body_part_visible(pose, shoulder_idx=pose.FindKeypoint(part["shoulder"]),
-                                        elbow_idx=pose.FindKeypoint(part["elbow"]),  
-                                        wrist_idx=pose.FindKeypoint(part["wrist"]))
+            body_part_visible = check_body_part_visible(pose, shoulder_idx=pose.FindKeypoint(part["joint1"]),
+                                        elbow_idx=pose.FindKeypoint(part["joint2"]),  
+                                        wrist_idx=pose.FindKeypoint(part["joint3"]))
         
-            body_part_raised = check_body_part_raised(pose, shoulder_idx=pose.FindKeypoint(part["shoulder"]),
-                                        elbow_idx=pose.FindKeypoint(part["elbow"]),  
-                                        wrist_idx=pose.FindKeypoint(part["wrist"]))
+            body_part_raised = check_body_part_raised(pose, shoulder_idx=pose.FindKeypoint(part["joint1"]),
+                                        elbow_idx=pose.FindKeypoint(part["joint2"]),  
+                                        wrist_idx=pose.FindKeypoint(part["joint3"]))
+            lower_body_part_visible  = check_lower_body_part_visible(pose, hip_idx=pose.FindKeypoint(part["joint1"]), 
+                                                            ankle_idx=pose.FindKeypoint(part["joint2"]), 
+                                                            knee_idx=pose.FindKeypoint(part["joint3"]))
+            lower_body_part_raised = check_lower_body_part_raised(pose, hip_idx=pose.FindKeypoint(part["joint1"]), 
+                                                            ankle_idx=pose.FindKeypoint(part["joint2"]), 
+                                                            knee_idx=pose.FindKeypoint(part["joint3"]))
             if not body_part_visible or not body_part_raised:
                 break
 
