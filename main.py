@@ -30,20 +30,40 @@ from jetson_utils import videoSource, videoOutput, Log, cudaFont
 from timeit import default_timer as timer
 
 
-def check_body_part_visible(pose, shoulder_idx, elbow_idx, wrist_idx)->bool:
-    if shoulder_idx < 0 or elbow_idx < 0 or wrist_idx < 0: 
+def check_body_part_visible(pose, joint1_idx, joint2_idx, joint3_idx)->bool:
+    if joint1_idx < 0 or joint2_idx < 0 or joint3_idx < 0: 
         return False
     return True
 
-def check_body_part_raised(pose, shoulder_idx, elbow_idx, wrist_idx)->bool:
+def check_body_part_raised(pose, joint1_idx, joint2_idx, joint3_idx, location)->bool:
 
-    if shoulder_idx < 0 or elbow_idx < 0 or wrist_idx < 0:
+    if joint1_idx < 0 or joint2_idx < 0 or joint3_idx < 0:
         return False
     
-    wrist = pose.Keypoints[wrist_idx]
-    shoulder = pose.Keypoints[shoulder_idx]
 
-    return True if (shoulder.y - wrist.y) > 0.0 else False
+    if location == "upper":
+        wrist = pose.Keypoints[joint3_idx]
+        shoulder = pose.Keypoints[joint1_idx]
+        return True if (shoulder.y - wrist.y) > 0.0 else False
+    elif location == "lower":
+        hip = pose.Keypoints[joint1_idx]
+        ankle = pose.Keypoints[joint2_idx]
+        knee = pose.Keypoints[joint3_idx]
+
+        return True if (abs(hip.y-knee.y) < abs(0.8*(knee.y-ankle.y))) else False
+    elif location == "torso":
+        knee1 = pose.Keypoints[joint1_idx]
+        knee2 = pose.Keypoints[joint2_idx]
+        shoulder = pose.Keypoints[joint3_idx]
+
+        return True if (knee1.x > shoulder.x and shoulder.x > knee2.x) or (knee1.x < shoulder.x and shoulder.x < knee2.x) else False
+
+
+
+
+
+
+
 
 def check_lower_body_part_visible(pose, hip_idx, ankle_idx, knee_idx)->bool:
     if hip_idx < 0 or ankle_idx < 0 or knee_idx < 0: 
@@ -62,6 +82,25 @@ def check_lower_body_part_raised(pose, hip_idx, ankle_idx, knee_idx)->bool:
     legs_y = (hip.y + ankle.y)/2
 
     return True if legs_y > 0.0 else False
+
+def check_torso_body_part_visible(pose, hip_idx, knee_idx, shoulder_idx)->bool:
+    if hip_idx < 0 or knee_idx < 0 or shoulder_idx < 0: 
+        return False
+    return True
+
+def check_torso_body_part_rotated(pose, hip_idx, knee_idx, shoulder_idx)->bool:
+
+    if hip_idx < 0 or knee_idx < 0 or shoulder_idx < 0:
+        return False
+    
+    hip = pose.Keypoints[hip_idx]
+    knee = pose.Keypoints[knee_idx]
+    shoulder = pose.Keypoints[shoulder_idx]
+
+    rotation_x = shoulder.x 
+    rotation_y = (shoulder.y + hip.y)/2
+
+    return True
 
 # parse the command line
 parser = argparse.ArgumentParser(description="Run pose estimation DNN on a video/image stream.", 
@@ -97,21 +136,39 @@ part_raised_previously:bool = False
 count_of_body_part_movement = 0
 
 limbs = [{"name": "Left Arm", 
-        "joint1": "left_shoulder", 
-        "joint2": "left_elbow", 
-        "joint3": "left_wrist"}, 
+          "joint1": "left_shoulder", 
+          "joint2": "left_elbow", 
+          "joint3": "left_wrist",
+          "location": "upper"
+          }, 
         {"name": "Right Arm", 
-        "joint1": "right_shoulder", 
-        "joint2": "right_elbow", 
-        "joint3": "right_wrist"},
+          "joint1": "right_shoulder", 
+          "joint2": "right_elbow", 
+          "joint3": "right_wrist",
+          "location": "upper"
+          },
         {"name": "Left Leg", 
-        "joint1": "left_hip", 
-        "joint2": "left_ankle", 
-        "joint3": "left_knee"},
+          "joint1": "left_hip", 
+          "joint2": "left_ankle", 
+          "joint3": "left_knee",
+          "location": "lower"
+          },
         {"name": "Right Leg", 
-        "joint1": "right_hip", 
-        "joint2": "right_ankle", 
-        "joint3": "right_knee"}]
+          "joint1": "right_hip", 
+          "joint2": "right_ankle", 
+          "joint3": "right_knee",
+          "location": "lower"},
+        {"name": "Right Torso", 
+          "joint1": "right_knee", 
+          "joint2": "left_knee", 
+          "joint3": "right_shoulder",
+          "location": "torso"},
+        {"name": "Left Torso", 
+          "joint1": "right_knee", 
+          "joint2": "left_knee", 
+          "joint3": "left_shoulder",
+          "location": "torso"}]
+          
 
 exercises = [{"name": "Lift Left Arm", 
           "body_parts": ["Left Arm"], 
@@ -142,7 +199,20 @@ exercises = [{"name": "Lift Left Arm",
           "duration": 3,
           "repeat": 2,
           "caption": "Lower Right Leg",
-          "describe": "Right Leg is"}]
+          "describe": "Right Leg is"},
+          {"name": "Rotate Right Torso", 
+          "body_parts": ["Right Torso"],
+          "duration": 3,
+          "repeat": 2,
+          "caption": "Rotate Left Torso",
+          "describe": "Left Torso is"},
+          {"name": "Rotate Right Torso", 
+          "body_parts": ["Left Torso"],
+          "duration": 3,
+          "repeat": 2,
+          "caption": "Rotate Left Torso",
+          "describe": "Left Torso is"}]
+
 
 current_exercise_index = 0
 exercise_started = False
@@ -205,19 +275,21 @@ while True:
         for body_part in body_parts:  #body_part is a str
             matches = [x for x in limbs if x["name"] == body_part]
             part = matches[0]
-            body_part_visible = check_body_part_visible(pose, shoulder_idx=pose.FindKeypoint(part["joint1"]),
-                                        elbow_idx=pose.FindKeypoint(part["joint2"]),  
-                                        wrist_idx=pose.FindKeypoint(part["joint3"]))
+            body_part_visible = check_body_part_visible(pose, joint1_idx=pose.FindKeypoint(part["joint1"]),
+                                        joint2_idx=pose.FindKeypoint(part["joint2"]),  
+                                        joint3_idx=pose.FindKeypoint(part["joint3"]))
         
-            body_part_raised = check_body_part_raised(pose, shoulder_idx=pose.FindKeypoint(part["joint1"]),
-                                        elbow_idx=pose.FindKeypoint(part["joint2"]),  
-                                        wrist_idx=pose.FindKeypoint(part["joint3"]))
-            lower_body_part_visible  = check_lower_body_part_visible(pose, hip_idx=pose.FindKeypoint(part["joint1"]), 
-                                                            ankle_idx=pose.FindKeypoint(part["joint2"]), 
-                                                            knee_idx=pose.FindKeypoint(part["joint3"]))
-            lower_body_part_raised = check_lower_body_part_raised(pose, hip_idx=pose.FindKeypoint(part["joint1"]), 
-                                                            ankle_idx=pose.FindKeypoint(part["joint2"]), 
-                                                            knee_idx=pose.FindKeypoint(part["joint3"]))
+            body_part_raised = check_body_part_raised(pose, joint1_idx=pose.FindKeypoint(part["joint1"]),
+                                        joint2_idx=pose.FindKeypoint(part["joint2"]),  
+                                        joint3_idx=pose.FindKeypoint(part["joint3"]), location=part["location"])
+            '''
+            torso_body_part_visible  = check_torso_body_part_visible(pose, hip_idx=pose.FindKeypoint(part["joint1"]), 
+                                                            knee_idx=pose.FindKeypoint(part["joint2"]), 
+                                                            shoulder_idx=pose.FindKeypoint(part["joint3"]))
+            torso_body_part_raised = check_torso_body_part_rotated(pose, hip_idx=pose.FindKeypoint(part["joint1"]), 
+                                                            knee_idx=pose.FindKeypoint(part["joint2"]), 
+                                                            shoulder_idx=pose.FindKeypoint(part["joint3"]))
+            '''
             if not body_part_visible or not body_part_raised:
                 break
 
