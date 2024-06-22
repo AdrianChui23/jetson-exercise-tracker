@@ -40,11 +40,11 @@ def check_body_part_at_exercise(pose, joint1_idx, joint2_idx, joint3_idx, locati
     if joint1_idx < 0 or joint2_idx < 0 or joint3_idx < 0:
         return False
     
-
     if location == "upper":
-        wrist = pose.Keypoints[joint3_idx]
         shoulder = pose.Keypoints[joint1_idx]
-        return True if (shoulder.y - wrist.y) > 0.0 else False
+        elbow = pose.Keypoints[joint2_idx]
+        wrist = pose.Keypoints[joint3_idx]
+        return True if shoulder.y > elbow.y else False
     elif location == "lower":
         hip = pose.Keypoints[joint1_idx]
         ankle = pose.Keypoints[joint2_idx]
@@ -60,7 +60,7 @@ def check_body_part_at_exercise(pose, joint1_idx, joint2_idx, joint3_idx, locati
 
 
 # load the pose estimation model
-net = poseNet("resnet18-body", 0, 0.15)
+model = poseNet("resnet18-body", 0, 0.15)
 
 # create video sources & outputs
 input = videoSource("/dev/video0")
@@ -110,48 +110,49 @@ exercises = [{"name": "Lift Left Arm",
           "body_parts": ["Left Arm"], 
           "duration": 5,
           "repeat":2,
-          "caption": "Lower Left Arm",
-          "describe": "Left Arm is" }, 
+          "return_caption": "Lower Left Arm",
+          "description": "Raise Left Arm" }, 
           {"name": "Lift Right Arm", 
           "body_parts": ["Right Arm"], 
           "duration": 5,
           "repeat":2,
-          "caption": "Lower Right Arm",
-          "describe": "Right Arm is"  },
+          "return_caption": "Lower Right Arm",
+          "description": "Raise Right Arm"  },
           {"name": "Lift Both Arms", 
           "body_parts": ["Left Arm", "Right Arm"],
           "duration": 3,
           "repeat": 3 ,
-          "caption": "Lower Both Arm",
-          "describe": "Both Arms are"},
+          "return_caption": "Lower Both Arm",
+          "description": "Raise Both Arms"},
           {"name": "Lift Left Leg", 
           "body_parts": ["Left Leg"],
           "duration": 3,
           "repeat": 2,
-          "caption": "Lower Left Leg",
-          "describe": "Left Leg is"},
+          "return_caption": "Lower Left Leg",
+          "description": "Lift Left Leg"},
           {"name": "Lift Right Leg", 
           "body_parts": ["Right Leg"],
           "duration": 3,
           "repeat": 2,
-          "caption": "Lower Right Leg",
-          "describe": "Right Leg is"},
+          "return_caption": "Lower Right Leg",
+          "description": "Lift Right Leg"},
           {"name": "Rotate Right Torso", 
           "body_parts": ["Right Torso"],
           "duration": 3,
           "repeat": 2,
-          "caption": "Rotate Left Torso",
-          "describe": "Left Torso is"},
-          {"name": "Rotate Right Torso", 
+          "return_caption": "Return Torso to the front",
+          "description": "Rotate Right Torso"},
+          {"name": "Rotate Left Torso", 
           "body_parts": ["Left Torso"],
           "duration": 3,
           "repeat": 2,
-          "caption": "Rotate Left Torso",
-          "describe": "Left Torso is"}]
+          "return_caption": "Rotate Torso to the front",
+          "description": "Rotate Left Torso"}]
 
 
 current_exercise_index = 0
 exercise_completed = False
+repeat = -1
 
 # loop to process each frame 
 while True:
@@ -162,11 +163,13 @@ while True:
         continue  
 
     # procss the new frame
-    poses = net.Process(img)
+    poses = model.Process(img)
     
     # get the current exercise
     exercise:dict = exercises[current_exercise_index]
 
+    if repeat < 0:
+        repeat = exercise["repeat"]
     # get the body parts involved
     body_parts = exercise["body_parts"]
 
@@ -232,24 +235,26 @@ while True:
         else:          
 
             if body_part_at_exercise:
-                if not part_at_exercise_previously: #if this is the firat frame when the body part is at the exercising position
+                if not part_at_exercise_previously: #if this is the first frame when the body part is at the exercising position
                     time_start = timer() 
                     part_at_exercise_previously = True
                     exercise_completed = False                
             else:
                 # when the body is not at the exercising position
                 part_at_exercise_previously = False
-                font.OverlayText(img, text=f"{exercise['describe']} not raised ",
+                font.OverlayText(img, text=f"{exercise['description']}",
                     x=5, y=50 + (font.GetSize()),
                     color=font.White, background=font.Gray40)    
                 if exercise_completed:
-                    current_exercise_index = (current_exercise_index+ 1) % len(exercises) 
+                    repeat = repeat - 1 
+                    if repeat == 0:
+                        current_exercise_index = (current_exercise_index + 1) % len(exercises)
                     exercise_completed = False
 
             if part_at_exercise_previously:
                 elasped_time = timer() - time_start
                 if elasped_time > exercise['duration']:
-                    font.OverlayText(img, text=f"{exercise['caption']}",
+                    font.OverlayText(img, text=f"{exercise['return_caption']}",
                                     x=0, y=50 + (font.GetSize()),
                                     color=font.White, background=font.Gray40) 
                     if not exercise_completed:
@@ -258,11 +263,11 @@ while True:
                     exercise_completed = True
 
                 else:
-                    font.OverlayText(img, text=f"{exercise['describe']} lifted for{time_start + exercise['duration']- timer(): .0f} seconds.",
+                    font.OverlayText(img, text=f"Holds this position for{time_start + exercise['duration'] - timer(): .0f} seconds.",
                         x=0, y=50 + (font.GetSize()),
                         color=font.White, background=font.Gray40)
                         
-    font.OverlayText(img, text=f"Total exercise: {count_of_body_part_movement}",
+    font.OverlayText(img, text=f"Total # exercises: {count_of_body_part_movement}",
             x=0, y=100 + (font.GetSize()),
             color=font.White, background=font.Gray40)
 
