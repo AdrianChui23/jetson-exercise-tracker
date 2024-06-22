@@ -35,7 +35,7 @@ def check_body_part_visible(pose, joint1_idx, joint2_idx, joint3_idx)->bool:
         return False
     return True
 
-def check_body_part_raised(pose, joint1_idx, joint2_idx, joint3_idx, location)->bool:
+def check_body_part_moved(pose, joint1_idx, joint2_idx, joint3_idx, location)->bool:
 
     if joint1_idx < 0 or joint2_idx < 0 or joint3_idx < 0:
         return False
@@ -59,77 +59,17 @@ def check_body_part_raised(pose, joint1_idx, joint2_idx, joint3_idx, location)->
         return True if (knee1.x > shoulder.x and shoulder.x > knee2.x) or (knee1.x < shoulder.x and shoulder.x < knee2.x) else False
 
 
-
-
-
-
-
-
-def check_lower_body_part_visible(pose, hip_idx, ankle_idx, knee_idx)->bool:
-    if hip_idx < 0 or ankle_idx < 0 or knee_idx < 0: 
-        return False
-    return True
-
-def check_lower_body_part_raised(pose, hip_idx, ankle_idx, knee_idx)->bool:
-
-    if hip_idx < 0 or ankle_idx < 0 or knee_idx < 0:
-        return False
-    
-    hip = pose.Keypoints[hip_idx]
-    ankle = pose.Keypoints[ankle_idx]
-    knee = pose.Keypoints[knee_idx]
-
-    legs_y = (hip.y + ankle.y)/2
-
-    return True if legs_y > 0.0 else False
-
-def check_torso_body_part_visible(pose, hip_idx, knee_idx, shoulder_idx)->bool:
-    if hip_idx < 0 or knee_idx < 0 or shoulder_idx < 0: 
-        return False
-    return True
-
-def check_torso_body_part_rotated(pose, hip_idx, knee_idx, shoulder_idx)->bool:
-
-    if hip_idx < 0 or knee_idx < 0 or shoulder_idx < 0:
-        return False
-    
-    hip = pose.Keypoints[hip_idx]
-    knee = pose.Keypoints[knee_idx]
-    shoulder = pose.Keypoints[shoulder_idx]
-
-    rotation_x = shoulder.x 
-    rotation_y = (shoulder.y + hip.y)/2
-
-    return True
-
-# parse the command line
-parser = argparse.ArgumentParser(description="Run pose estimation DNN on a video/image stream.", 
-                                 formatter_class=argparse.RawTextHelpFormatter, 
-                                 epilog=poseNet.Usage() + videoSource.Usage() + videoOutput.Usage() + Log.Usage())
-
-parser.add_argument("input", type=str, default="", nargs='?', help="URI of the input stream")
-parser.add_argument("output", type=str, default="", nargs='?', help="URI of the output stream")
-parser.add_argument("--network", type=str, default="resnet18-body", help="pre-trained model to load (see below for options)")
-parser.add_argument("--overlay", type=str, default="links,keypoints", help="pose overlay flags (e.g. --overlay=links,keypoints)\nvalid combinations are:  'links', 'keypoints', 'boxes', 'none'")
-parser.add_argument("--threshold", type=float, default=0.15, help="minimum detection threshold to use") 
-
-try:
-	args = parser.parse_known_args()[0]
-except:
-	print("")
-	parser.print_help()
-	sys.exit(0)
-
 # load the pose estimation model
-net = poseNet(args.network, sys.argv, args.threshold)
+net = poseNet("resnet18-body", 0, 0.15)
 
 # create video sources & outputs
-input = videoSource(args.input, argv=sys.argv)
-output = videoOutput(args.output, argv=sys.argv)
+input = videoSource("/dev/video0")
+output = videoOutput()
+output.SetStatus("Exercise Tracker")
 
 font = cudaFont()
-left_body_part_raised:bool = False
-right_body_part_raised:bool = False
+left_body_part_moved:bool = False
+right_body_part_moved:bool = False
 part_raised_previously:bool = False
 part_raised_previously:bool = False
 part_raised_previously:bool = False
@@ -219,7 +159,7 @@ exercise_started = False
 exercise_completed = True
 
 
-# process frames until EOS or the user exits
+# loop to process each frame 
 while True:
     # capture the next image
     img = input.Capture()
@@ -227,16 +167,17 @@ while True:
     if img is None: # timeout
         continue  
 
-    # perform pose estimation (with overlay)
-    poses = net.Process(img, overlay=args.overlay)
+    # procss the new frame
+    poses = net.Process(img)
     
-
+    # get the current exercise
     exercise:dict = exercises[current_exercise_index]
 
+    # get the body parts involved
     body_parts = exercise["body_parts"]
 
     body_part_visible = False
-    body_part_raised = False
+    body_part_moved = False
         
 
     if len(poses) == 0:
@@ -248,11 +189,14 @@ while True:
                     x=0, y=0 + (font.GetSize()),
                     color=font.White, background=font.Gray40)
     if len(poses) > 1:
+        # when there are more than one body detected
         font.OverlayText(img, text=f"Too many people",
                     x=0, y=50 + (font.GetSize()),
                     color=font.White, background=font.Gray40)
-    elif len(poses) == 1:
-        pose = poses[0]
+    elif len(poses) == 1:  
+        pose = poses[0] # get the only body
+
+        # find all the detected key points
         left_wrist_idx = pose.FindKeypoint('left_wrist')
         left_shoulder_idx = pose.FindKeypoint('left_shoulder')
         left_eye_idx = pose.FindKeypoint('left_eye')
@@ -271,7 +215,7 @@ while True:
         right_eye_idx = pose.FindKeypoint('right_eye')
         nose_idx = pose.FindKeypoint('nose')
 
-
+        # check all the body parts each consist of some keypoints
         for body_part in body_parts:  #body_part is a str
             matches = [x for x in limbs if x["name"] == body_part]
             part = matches[0]
@@ -279,37 +223,32 @@ while True:
                                         joint2_idx=pose.FindKeypoint(part["joint2"]),  
                                         joint3_idx=pose.FindKeypoint(part["joint3"]))
         
-            body_part_raised = check_body_part_raised(pose, joint1_idx=pose.FindKeypoint(part["joint1"]),
+            body_part_moved = check_body_part_moved(pose, joint1_idx=pose.FindKeypoint(part["joint1"]),
                                         joint2_idx=pose.FindKeypoint(part["joint2"]),  
                                         joint3_idx=pose.FindKeypoint(part["joint3"]), location=part["location"])
-            '''
-            torso_body_part_visible  = check_torso_body_part_visible(pose, hip_idx=pose.FindKeypoint(part["joint1"]), 
-                                                            knee_idx=pose.FindKeypoint(part["joint2"]), 
-                                                            shoulder_idx=pose.FindKeypoint(part["joint3"]))
-            torso_body_part_raised = check_torso_body_part_rotated(pose, hip_idx=pose.FindKeypoint(part["joint1"]), 
-                                                            knee_idx=pose.FindKeypoint(part["joint2"]), 
-                                                            shoulder_idx=pose.FindKeypoint(part["joint3"]))
-            '''
-            if not body_part_visible or not body_part_raised:
+            if not body_part_visible or not body_part_moved:
                 break
 
+        # Flag the issue when the whole body part is not visible.
         if not body_part_visible:
             font.OverlayText(img, text=f"{part['name']} is not visible.",
                                 x=5, y=50 + (font.GetSize()),
                                 color=font.White, background=font.Gray40)
             
-        else:            
-            if body_part_raised:
-                if not part_raised_previously:
-                    part_start = timer()
+        else:          
+
+            if body_part_moved:
+                if not part_raised_previously: #if this is the firat frame when the body part is at the exercising position
+                    part_start = timer() 
                     part_raised_previously = True
                     exercise_completed = False                
             else:
+                # when the body is not at the exercising position
                 part_raised_previously = False
                 font.OverlayText(img, text=f"{exercise['describe']} not raised ",
                     x=5, y=50 + (font.GetSize()),
                     color=font.White, background=font.Gray40)    
-                if not exercise_started:
+                if not exercise_started:                    
                     if exercise_completed:
                         current_exercise_index = (current_exercise_index+ 1) % len(exercises) 
                         exercise_completed = False
@@ -336,15 +275,9 @@ while True:
             x=0, y=100 + (font.GetSize()),
             color=font.White, background=font.Gray40)
 
-    # render the image
+    # draw the visual
     output.Render(img)
 
-    # update the title bar
-    output.SetStatus("{:s} | Network {:.0f} FPS".format(args.network, net.GetNetworkFPS()))
 
-    # print out performance info
-    net.PrintProfilerTimes()
-
-    # exit on input/output EOS
     if not input.IsStreaming() or not output.IsStreaming():
         break
