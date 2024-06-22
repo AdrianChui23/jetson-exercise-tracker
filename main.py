@@ -35,7 +35,7 @@ def check_body_part_visible(pose, joint1_idx, joint2_idx, joint3_idx)->bool:
         return False
     return True
 
-def check_body_part_moved(pose, joint1_idx, joint2_idx, joint3_idx, location)->bool:
+def check_body_part_at_exercise(pose, joint1_idx, joint2_idx, joint3_idx, location)->bool:
 
     if joint1_idx < 0 or joint2_idx < 0 or joint3_idx < 0:
         return False
@@ -68,11 +68,7 @@ output = videoOutput()
 output.SetStatus("Exercise Tracker")
 
 font = cudaFont()
-left_body_part_moved:bool = False
-right_body_part_moved:bool = False
-part_raised_previously:bool = False
-part_raised_previously:bool = False
-part_raised_previously:bool = False
+part_at_exercise_previously:bool = False
 count_of_body_part_movement = 0
 
 limbs = [{"name": "Left Arm", 
@@ -155,9 +151,7 @@ exercises = [{"name": "Lift Left Arm",
 
 
 current_exercise_index = 0
-exercise_started = False
-exercise_completed = True
-
+exercise_completed = False
 
 # loop to process each frame 
 while True:
@@ -177,7 +171,7 @@ while True:
     body_parts = exercise["body_parts"]
 
     body_part_visible = False
-    body_part_moved = False
+    body_part_at_exercise = False
         
 
     if len(poses) == 0:
@@ -223,10 +217,10 @@ while True:
                                         joint2_idx=pose.FindKeypoint(part["joint2"]),  
                                         joint3_idx=pose.FindKeypoint(part["joint3"]))
         
-            body_part_moved = check_body_part_moved(pose, joint1_idx=pose.FindKeypoint(part["joint1"]),
+            body_part_at_exercise = check_body_part_at_exercise(pose, joint1_idx=pose.FindKeypoint(part["joint1"]),
                                         joint2_idx=pose.FindKeypoint(part["joint2"]),  
                                         joint3_idx=pose.FindKeypoint(part["joint3"]), location=part["location"])
-            if not body_part_visible or not body_part_moved:
+            if not body_part_visible or not body_part_at_exercise:
                 break
 
         # Flag the issue when the whole body part is not visible.
@@ -237,25 +231,23 @@ while True:
             
         else:          
 
-            if body_part_moved:
-                if not part_raised_previously: #if this is the firat frame when the body part is at the exercising position
-                    part_start = timer() 
-                    part_raised_previously = True
+            if body_part_at_exercise:
+                if not part_at_exercise_previously: #if this is the firat frame when the body part is at the exercising position
+                    time_start = timer() 
+                    part_at_exercise_previously = True
                     exercise_completed = False                
             else:
                 # when the body is not at the exercising position
-                part_raised_previously = False
+                part_at_exercise_previously = False
                 font.OverlayText(img, text=f"{exercise['describe']} not raised ",
                     x=5, y=50 + (font.GetSize()),
                     color=font.White, background=font.Gray40)    
-                if not exercise_started:                    
-                    if exercise_completed:
-                        current_exercise_index = (current_exercise_index+ 1) % len(exercises) 
-                        exercise_completed = False
-                    exercise_started = True
+                if exercise_completed:
+                    current_exercise_index = (current_exercise_index+ 1) % len(exercises) 
+                    exercise_completed = False
 
-            if part_raised_previously:
-                elasped_time = timer() - part_start
+            if part_at_exercise_previously:
+                elasped_time = timer() - time_start
                 if elasped_time > exercise['duration']:
                     font.OverlayText(img, text=f"{exercise['caption']}",
                                     x=0, y=50 + (font.GetSize()),
@@ -264,10 +256,9 @@ while True:
                         count_of_body_part_movement += 1       
         
                     exercise_completed = True
-                    exercise_started = False
 
                 else:
-                    font.OverlayText(img, text=f"{exercise['describe']} lifted for{part_start + exercise['duration']- timer(): .0f} seconds.",
+                    font.OverlayText(img, text=f"{exercise['describe']} lifted for{time_start + exercise['duration']- timer(): .0f} seconds.",
                         x=0, y=50 + (font.GetSize()),
                         color=font.White, background=font.Gray40)
                         
