@@ -1,25 +1,4 @@
 #!/usr/bin/env python3
-#
-# Copyright (c) 2021, NVIDIA CORPORATION. All rights reserved.
-#
-# Permission is hereby granted, free of charge, to any person obtaining a
-# copy of this software and associated documentation files (the "Software"),
-# to deal in the Software without restriction, including without limitation
-# the rights to use, copy, modify, merge, publish, distribute, sublicense,
-# and/or sell copies of the Software, and to permit persons to whom the
-# Software is furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
-# THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-# FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-# DEALINGS IN THE SOFTWARE.
-#
 
 import sys
 import argparse
@@ -28,15 +7,18 @@ import time
 from jetson_inference import poseNet
 from jetson_utils import videoSource, videoOutput, Log, cudaFont
 from timeit import default_timer as timer
+from adafruit_servokit import ServoKit
 
 
-def check_body_part_visible(pose, joint1_idx, joint2_idx, joint3_idx)->bool:
+kit = ServoKit(channels=16)
+
+def check_body_part_visible(pose, joint1_idx, joint2_idx, joint3_idx, track_idx)->bool:
+    joint_tracking(pose, track_idx)
     if joint1_idx < 0 or joint2_idx < 0 or joint3_idx < 0: 
         return False
     return True
 
 def check_body_part_at_exercise(pose, joint1_idx, joint2_idx, joint3_idx, location)->bool:
-
     if joint1_idx < 0 or joint2_idx < 0 or joint3_idx < 0:
         return False
     
@@ -49,21 +31,36 @@ def check_body_part_at_exercise(pose, joint1_idx, joint2_idx, joint3_idx, locati
         hip = pose.Keypoints[joint1_idx]
         ankle = pose.Keypoints[joint2_idx]
         knee = pose.Keypoints[joint3_idx]
-
         return True if (abs(hip.y-knee.y) < abs(0.8*(knee.y-ankle.y))) else False
     elif location == "torso":
         knee1 = pose.Keypoints[joint1_idx]
         knee2 = pose.Keypoints[joint2_idx]
         shoulder = pose.Keypoints[joint3_idx]
-
         return True if (knee1.x > shoulder.x and shoulder.x > knee2.x) or (knee1.x < shoulder.x and shoulder.x < knee2.x) else False
+
+
+
+def joint_tracking(pose, joint_idx):
+    if joint_idx < 0:
+        return False
+    joint = pose.Keypoints[joint_idx]
+    print(kit.servo[0].angle, joint.x, joint.y)
+    if joint.x > 680:
+        kit.servo[0].angle = min(max(0.0, kit.servo[0].angle - 3.0), 180.0)
+    elif joint.x < 600 :
+        kit.servo[0].angle = min(max(0.0, kit.servo[0].angle + 3.0), 180.0)
+    
+    if joint.y > 390:
+        kit.servo[1].angle = min(max(0.0, kit.servo[1].angle + 3.0), 180.0)
+    elif joint.y < 330:
+        kit.servo[1].angle = min(max(0.0, kit.servo[1].angle - 3.0), 180.0)
 
 
 # load the pose estimation model
 model = poseNet("resnet18-body", 0, 0.15)
 
 # create video sources & outputs
-input = videoSource("/dev/video0")
+input = videoSource()
 output = videoOutput()
 output.SetStatus("Exercise Tracker")
 
@@ -75,35 +72,44 @@ limbs = [{"name": "Left Arm",
           "joint1": "left_shoulder", 
           "joint2": "left_elbow", 
           "joint3": "left_wrist",
-          "location": "upper"
+          "location": "upper",
+          "track": "left_shoulder"
           }, 
         {"name": "Right Arm", 
           "joint1": "right_shoulder", 
           "joint2": "right_elbow", 
           "joint3": "right_wrist",
-          "location": "upper"
+          "location": "upper",
+          "track": "right_shoulder"
           },
         {"name": "Left Leg", 
           "joint1": "left_hip", 
           "joint2": "left_ankle", 
           "joint3": "left_knee",
-          "location": "lower"
+          "location": "lower",
+          "track": "left_hip"
           },
         {"name": "Right Leg", 
           "joint1": "right_hip", 
           "joint2": "right_ankle", 
           "joint3": "right_knee",
-          "location": "lower"},
+          "location": "lower",
+          "track": "right_hip"
+          },
         {"name": "Right Torso", 
           "joint1": "right_knee", 
           "joint2": "left_knee", 
           "joint3": "right_shoulder",
-          "location": "torso"},
+          "location": "torso",
+          "track": "left_hip"
+          },
         {"name": "Left Torso", 
           "joint1": "right_knee", 
           "joint2": "left_knee", 
           "joint3": "left_shoulder",
-          "location": "torso"}]
+          "location": "torso",
+          "track": "right_hip"
+          }]
           
 
 exercises = [{"name": "Lift Left Arm", 
@@ -153,6 +159,8 @@ exercises = [{"name": "Lift Left Arm",
 current_exercise_index = 0
 exercise_completed = False
 repeat = -1
+kit.servo[0].angle = 90
+kit.servo[1].angle = 90
 
 # loop to process each frame 
 while True:
@@ -175,7 +183,8 @@ while True:
 
     body_part_visible = False
     body_part_at_exercise = False
-        
+
+
 
     if len(poses) == 0:
         font.OverlayText(img, text=f"Body is not detected.",
@@ -212,13 +221,16 @@ while True:
         right_eye_idx = pose.FindKeypoint('right_eye')
         nose_idx = pose.FindKeypoint('nose')
 
+
+
         # check all the body parts each consist of some keypoints
         for body_part in body_parts:  #body_part is a str
             matches = [x for x in limbs if x["name"] == body_part]
             part = matches[0]
             body_part_visible = check_body_part_visible(pose, joint1_idx=pose.FindKeypoint(part["joint1"]),
                                         joint2_idx=pose.FindKeypoint(part["joint2"]),  
-                                        joint3_idx=pose.FindKeypoint(part["joint3"]))
+                                        joint3_idx=pose.FindKeypoint(part["joint3"]), 
+                                        track_idx=pose.FindKeypoint(part["track"]))
         
             body_part_at_exercise = check_body_part_at_exercise(pose, joint1_idx=pose.FindKeypoint(part["joint1"]),
                                         joint2_idx=pose.FindKeypoint(part["joint2"]),  
@@ -249,6 +261,7 @@ while True:
                     repeat = repeat - 1 
                     if repeat == 0:
                         current_exercise_index = (current_exercise_index + 1) % len(exercises)
+                        kit.servo[1].angle = 90
                     exercise_completed = False
 
             if part_at_exercise_previously:
@@ -270,6 +283,7 @@ while True:
     font.OverlayText(img, text=f"Total # exercises: {count_of_body_part_movement}",
             x=0, y=100 + (font.GetSize()),
             color=font.White, background=font.Gray40)
+    
 
     # draw the visual
     output.Render(img)
