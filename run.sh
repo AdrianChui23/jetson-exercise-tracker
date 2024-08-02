@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+sudo xhost +si:localuser:root
 sudo docker run --runtime nvidia -it --rm \
     --network host \
     -v /tmp/argus_socket:/tmp/argus_socket \
@@ -9,6 +10,7 @@ sudo docker run --runtime nvidia -it --rm \
     -v /var/run/avahi-daemon/socket:/var/run/avahi-daemon/socket \
     -v $(pwd):/jetson-exercise-tracker \
     --privileged \
+    --ipc host \
     -v /proc/device-tree/compatible:/proc/device-tree/compatible \
     -v /proc/device-tree/chosen:/proc/device-tree/chosen \
     -v $(pwd)/data:/jetson-inference/data \
