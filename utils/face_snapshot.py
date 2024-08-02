@@ -141,8 +141,8 @@ class Ui_Main_window(QMainWindow):
 		# setting style sheet to the status bar 
         self.status.setStyleSheet("background : white;") 
 		# path to save 
-        self.resize(1280, 870)
-        self.save_path = "/jetson-exercise-tracker"
+        self.setFixedSize(1280, 870)
+        self.save_path = "/jetson-exercise-tracker/face_images"
         self.capture_filename = ""
         self.person_name = ""
 
@@ -169,7 +169,11 @@ class Ui_Main_window(QMainWindow):
         timestamp = time.strftime("%d-%b-%Y-%H_%M_%S") 
 
 		# capture the image and save it on the save path 
-        self.capture_filename = os.path.join(self.save_path, 
+
+        person_dir = os.path.join(self.save_path, self.person_name)
+        os.makedirs(person_dir, exist_ok=True)
+
+        self.capture_filename = os.path.join(person_dir, 
 			"%04d-%s.jpg" % ( 
 			self.save_seq, 
 			timestamp 
