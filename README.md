@@ -62,7 +62,8 @@ After this project is cloned:
 
 ![img](images/tracker.jpg)
 
-<video src="https://github.com/AdrianChui23/jetson-exercise-tracker/blob/main/images/tracker.mov"></video> 
+Video showing the camera tracking:
+![img](images/tracker.gif)
 
 
 ## Software Specifications:
