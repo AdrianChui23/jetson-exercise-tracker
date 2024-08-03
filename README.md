@@ -82,8 +82,6 @@ This is a project based on the NVIDIA's `jetson-inference`docker  container.
   * Servo Connector (PCA8695) (https://www.adafruit.com/product/815)
   * Servo Motor (SG90) 2 axis (https://www.adafruit.com/product/1967)
 
-## Installations:
-![img](images/tracker.jpg)
 
 ## Software Specifications:
  * Nvidia Jetpack 6.0 (https://developer.nvidia.com/embedded/jetpack-sdk-60)
