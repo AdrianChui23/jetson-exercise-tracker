@@ -1,0 +1,23 @@
+FROM dustynv/jetson-inference:r36.2.0 
+RUN wget https://bootstrap.pypa.io/pip/3.6/get-pip.py
+RUN python3 get-pip.py
+RUN pip3 install adafruit-circuitpython-busdevice   adafruit-circuitpython-servokit adafruit-circuitpython-register  adafruit-circuitpython-motor Adafruit-Blinka  Jetson.GPIO face_recognition dlib==19.9.0
+RUN apt-get update
+RUN apt-get install -y qt6-base-dev
+RUN pip3 install PyQt6
+RUN apt-get install -y libxcb-cursor-dev
+#RUN apt-get install -y python3-pyqt5.qtmultimedia
+#RUN pip3 install PyQt5 
+#RUN apt-get install -y qttools5-dev-tools libqt5multimedia5-plugins
+#RUN apt-get install python3-pyqt5
+#RUN apt-get install pyqt5-dev-tools
+
+WORKDIR /jetson-exercise-tracker 
+
+
+
+
+
+
+
+
